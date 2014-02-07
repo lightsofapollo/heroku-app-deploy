@@ -1,4 +1,10 @@
-#! /bin/bash -evx
+#! /bin/bash
+
+set -e
+#set -v
+#set -x
+
+echo $@
 
 usage() {
   echo
@@ -45,18 +51,19 @@ echo "-----> build subtree $subtree"
 echo "-----> export location $subtree/$output_archive"
 
 # create the app directory (this has special meaning and _must_ be `app`)
-mkdir -p app/
+mkdir -p app_staging/
 
 # `app_source` is the current state of the git tree
 cd app_source
-git archive --format tar.gz -1 HEAD $subtree > ../app.tar.gz
+git archive --format tar.gz -1 HEAD $subtree -o ../app_staging.tar.gz
 cd ..
 
 # expand the git archive (to simulate the git push / git checkout workflow)
-tar xzf app.tar.gz -C app/ --strip-components=1
+tar xzf app_staging.tar.gz -C app_staging/
+mv app_staging/$subtree ./app
 
 cd buildpack
-./bin/compile $PWD/../app/
+./bin/compile /workspace/app
 cd ..
 # ./app is critical here if its changed heroku will not work
 tar czf ./$source_dir/$output_archive ./app
