@@ -1,0 +1,77 @@
+#! /usr/bin/env node
+var IMAGE = 'lightsofapollo/herok-node-compile';
+var Docker = require('dockerode-promise');
+var dockerOpts = require('dockerode-options');
+var DockerProc = require('dockerode-process');
+var Heroku = require('heroku-client');
+var heroku = new Heroku({ token: process.env.HEROKU_API_TOKEN });
+var fs = require('fs');
+var URL = require('url');
+var superagent = require('superagent');
+var https = require('https');
+var Promise = require('promise');
+
+var slugs = heroku.apps('appdeploy').slugs();
+var releases = heroku.apps('appdeploy').releases();
+
+var docker = new Docker(dockerOpts());
+var create = {
+  Tty: true,
+  Image: IMAGE,
+  Cmd: ['app']
+};
+var start = {
+  Binds: [process.cwd() + ':/workspace/app_source']
+};
+console.log(start);
+
+var proc = new DockerProc(docker, {
+  create: create,
+  start: start
+});
+
+var slug;
+proc.stdout.pipe(process.stdout);
+proc.run().then(
+  function(exitCode) {
+    if (exitCode !== 0) {
+      return process.exit(exitCode);
+    }
+    return slugs.create({"process_types":{"web":"node web.js"}});
+  }
+).then(
+  function(_slug) {
+    slug = _slug;
+    return new Promise(function(accept, reject) {
+      var file = __dirname + '/../app/slug.tgz';
+      var stat = fs.statSync(file);
+      var slugFile = fs.createReadStream(file);
+      var reqOpts = URL.parse(slug.blob.put);
+      reqOpts.method = 'PUT';
+      var req = https.request(reqOpts);
+      req.setHeader('Content-Length', stat.size);
+      slugFile.pipe(req);
+      req.once('error', reject);
+      req.once('response', function(res) {
+        accept(res);
+      });
+    });
+  }
+).then(
+  function(result) {
+    result.pipe(process.stdout);
+    return releases.create({
+      slug: slug.id
+    });
+  }
+).then(
+  function() {
+    console.log('DEPLOYED TEH THING');
+  },
+  function(err) {
+    console.log('FUX', err.stack);
+    //console.error('Docker error');
+    //console.error(err.stack);
+    process.exit(1);
+  }
+);
